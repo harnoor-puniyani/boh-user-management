@@ -1,87 +1,32 @@
-import express, { Request, Response } from "express";
+import express, { Request, Response,NextFunction } from "express";
 import sql from "mssql";
 import dotenv, { config } from "dotenv";
 import { add } from "three/tsl";
 import { log } from "console";
 import argon2 from "argon2";
-
+import * as globals from "./globals"
+import { verifyJWT, AuthenticatedRequest } from "./authentication"
+import cookieParser from "cookie-parser";
+import * as auth from "./authentication"
 dotenv.config({
   debug: true,
 });
 
+
 const app = express();
-app.use(express.json());
+app.use(express.json()).use(cookieParser());
 
-type userTable = {
-  UserID: string;
-  Email: string;
-  PhoneNumber: string;
-  IsActive: boolean;
-  CreatedAt: string;
-  UpdatedAt: string;
-};
 
-enum KYCStatus {
-  Pending = "Pending",
-  Approved = "Approved",
-  Rejected = "Rejected",
-}
-
-type userProfileTable = {
-  UserProfileID: string;
-  UserID: string;
-  FirstName: string;
-  LastName: string;
-  DateOfBirth: Date;
-  KYCStatus: KYCStatus;
-};
-
-type AddressTable = {
-  AddressID: string;
-  UserID: string;
-  AddressLine1: string;
-  City: string;
-  State: string;
-  PostalCode: string;
-  Country: string;
-  AddresssType: string;
-  IsPrimary: true;
-};
-
-type LoginHistoryTable = {
-  LogID: string;
-  UserID: string;
-  AttemptTome: string;
-  WasSccessful: boolean;
-  IPAddress: string;
-  UserAgenet: string;
-};
-
-const schema = process.env.DB_USER_SCHEMA;
-// const userSchema = "[user]";
-const dbConfig: sql.config = {
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  server: process.env.DB_SERVER as string,
-  port: parseInt(process.env.DB_PORT as any, 10),
-  database: process.env.DB_DATABASE,
-  options: {
-    abortTransactionOnError: true,
-    trustServerCertificate: true,
-    encrypt: false,
-  },
-};
-
-let connected = false;
-
-async function dbconnect(config: sql.config): Promise<sql.ConnectionPool> {
-  connected = true;
-  return await sql.connect(config);
-}
-
-async function dbdisconnect(sqlconnect: sql.ConnectionPool) {
-  sqlconnect.close();
-  connected = false;
+function protectWithCSRF(req: Request, res: Response, next: NextFunction) {
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+    return next();
+  }
+  const csrfFromHeader = req.headers["x-csrf-token"];
+  const csrfFromCookie = req.cookies["csrf-token"];
+  if (!csrfFromHeader || !csrfFromCookie || csrfFromHeader !== csrfFromCookie) {
+    return res.status(403).json({ message: "Invalid or missing CSRF token." });
+  }
+  next();
 }
 
 //
@@ -106,14 +51,14 @@ app.listen(PORT, () => {
 app.get(
   ["/users/:id", "/userProfile/:id", "/address/:id"],
   async (req: Request, res: Response) => {
-    let sqlconnection: sql.ConnectionPool = await dbconnect(dbConfig);
+    let sqlconnection: sql.ConnectionPool = await globals.dbconnect(globals.dbConfig);
     try {
       switch (true) {
         case req.path.startsWith("/users/"):
-          if (connected && req.params.id != null) {
+          if (globals.connected && req.params.id != null) {
             await new sql.Request(sqlconnection)
               .query(
-                `Select UserID,Email,PhoneNumber,IsActive from [${schema}].Users where UserID='${req.params.id}'`
+                `Select UserID,Email,PhoneNumber,IsActive from [${globals.schema}].Users where UserID='${req.params.id}'`
               )
               .then((result) => {
                 res.status(200).json({
@@ -126,10 +71,10 @@ app.get(
           }
           break;
         case req.path.startsWith("/userProfile"):
-          if (connected && req.params.id != null) {
+          if (globals.connected && req.params.id != null) {
             await new sql.Request(sqlconnection)
               .query(
-                `Select * from [${schema}].UserProfiles where UserID = '${req.params.id}'`
+                `Select * from [${globals.schema}].UserProfiles where UserID = '${req.params.id}'`
               )
               .then((result) => {
                 res.status(200).json({
@@ -142,10 +87,10 @@ app.get(
           }
           break;
         case req.path.startsWith("/address"):
-          if (connected && req.params.id != null) {
+          if (globals.connected && req.params.id != null) {
             await new sql.Request(sqlconnection)
               .query(
-                `Select * from [${schema}].Addresses where UserID = '${req.params.id}'`
+                `Select * from [${globals.schema}].Addresses where UserID = '${req.params.id}'`
               )
               .then((result) => {
                 res.status(200).json({
@@ -163,20 +108,20 @@ app.get(
     } catch (error) {
       res.status(500).json(error);
     } finally {
-      await dbdisconnect(sqlconnection);
+      await globals.dbdisconnect(sqlconnection);
     }
   }
 );
 
 app.post(
-  ["/users", "/userProfile", "/address"],
+  ["/users", "/userProfile", "/address"],auth.verifyJWT, protectWithCSRF,
   async (req: Request, res: Response) => {
-    let sqlconnection: sql.ConnectionPool = await dbconnect(dbConfig);
+    let sqlconnection: sql.ConnectionPool = await globals.dbconnect(globals.dbConfig);
     try {
       switch (true) {
         case req.path.startsWith("/users"):
-          if (connected && req.body.UserID == null) {
-            let userData: userTable = req.body as userTable;
+          if (globals.connected && req.body.UserID == null) {
+            let userData: globals.userTable = req.body as globals.userTable;
             const password = req.body.password;
             const hashedPassword = await argon2.hash(password, {
               type: argon2.argon2id,
@@ -189,7 +134,7 @@ app.post(
               .input("IsActive", sql.Bit, userData.IsActive)
               .input("PasswordHash", hashedPassword)
               .query(
-                `INSERT INTO [${schema}].[Users] 
+                `INSERT INTO [${globals.schema}].[Users] 
                         (Email, PhoneNumber, IsActive,PasswordHash)
                         VALUES (@Email, @PhoneNumber, @IsActive,@PasswordHash)`
               )
@@ -204,9 +149,9 @@ app.post(
           }
           break;
         case req.path.startsWith("/userProfile"):
-          if (connected && req.body.UserID != null) {
-            let userProfileData: userProfileTable =
-              req.body as userProfileTable;
+          if (globals.connected && req.body.UserID != null) {
+            let userProfileData: globals.userProfileTable =
+              req.body as globals.userProfileTable;
             await new sql.Request(sqlconnection)
               .input("DateOfBirth", userProfileData.DateOfBirth)
               .input("FirstName", userProfileData.FirstName)
@@ -215,7 +160,7 @@ app.post(
               .input("UserProfileID", userProfileData.UserProfileID)
               .input("KYCStatus", userProfileData.KYCStatus)
               .query(
-                `INSERT INTO [${schema}].[UserProfiles] 
+                `INSERT INTO [${globals.schema}].[UserProfiles] 
                         (DateOfBirth,FirstName,LastName,UserID,UserProfileID,KYCStatus)
                         VALUES (@DateOfBirth,@FirstName,@LastName,@UserID,@UserProfileID,@KYCStatus)
                     `
@@ -231,8 +176,9 @@ app.post(
           }
           break;
         case req.path.startsWith("/address"):
-          if (connected && req.body.UserID != null) {
-            let address: AddressTable = req.body as AddressTable;
+          if (globals.connected && req.body.UserID != null) {
+            let address: globals.AddressTable =
+              req.body as globals.AddressTable;
 
             await new sql.Request(sqlconnection)
               .input("AddressID", address.AddressID)
@@ -246,7 +192,7 @@ app.post(
               .input("UserID", address.UserID)
               .query(
                 `   
-                    INSERT INTO [${schema}].[address] 
+                    INSERT INTO [${globals.schema}].[address] 
                     (AddressID,AddressLine1,AddresssType,City,Country,IsPrimary,PostalCode,State,UserID)
                     VALUES (@AddressID,@AddressLine1,@AddresssType,@City,@Country,@IsPrimary,@PostalCode,@State,@UserID)
                 `
@@ -269,7 +215,9 @@ app.post(
 );
 
 app.get(["/development/:id"], async (req: Request, res: Response) => {
-  let sqlconnection: sql.ConnectionPool = await dbconnect(dbConfig);
+  let sqlconnection: sql.ConnectionPool = await globals.dbconnect(
+    globals.dbConfig
+  );
   try {
     const table = req.path.split("/development/");
     console.log(table[1]);
@@ -291,26 +239,29 @@ app.get(["/development/:id"], async (req: Request, res: Response) => {
       error: err,
     });
   } finally {
-    await dbdisconnect(sqlconnection);
+    await globals.dbdisconnect(sqlconnection);
   }
 });
 
 app.post("/new", async (req: Request, res: Response) => {
-  let sqlconnection: sql.ConnectionPool = await dbconnect(dbConfig);
+  let sqlconnection: sql.ConnectionPool = await globals.dbconnect(
+    globals.dbConfig
+  );
   let transaction = await new sql.Transaction(sqlconnection).begin();
   try {
-    if (connected && req.body.user.UserID != null) {
-      let userData: userTable = req.body.user as userTable;
+    if (globals.connected && req.body.user.UserID != null) {
+      let userData: globals.userTable = req.body.user as globals.userTable;
       const password = req.body.password;
 
       const hashedPassword = await argon2.hash(password, {
         type: argon2.argon2id,
       });
 
-      let userProfileData: userProfileTable = req.body
-        .userProfile as userProfileTable;
+      let userProfileData: globals.userProfileTable = req.body
+        .userProfile as globals.userProfileTable;
 
-      let address: AddressTable = req.body.address as AddressTable;
+      let address: globals.AddressTable = req.body
+        .address as globals.AddressTable;
 
       let userRequest = await new sql.Request(transaction)
         .input("Email", sql.NVarChar, userData.Email)
@@ -318,7 +269,7 @@ app.post("/new", async (req: Request, res: Response) => {
         .input("IsActive", sql.Bit, userData.IsActive)
         .input("PasswordHash", hashedPassword)
         .query(
-          `INSERT INTO [${schema}].[Users] 
+          `INSERT INTO [${globals.schema}].[Users] 
             (Email, PhoneNumber, IsActive,PasswordHash)
             OUTPUT inserted.UserID
             VALUES (@Email, @PhoneNumber, @IsActive,@PasswordHash)`
@@ -333,7 +284,7 @@ app.post("/new", async (req: Request, res: Response) => {
         .input("UserID", userID)
         .input("KYCStatus", userProfileData.KYCStatus)
         .query(
-          `INSERT INTO [${schema}].[UserProfiles] 
+          `INSERT INTO [${globals.schema}].[UserProfiles] 
             (DateOfBirth,FirstName,LastName,UserID,UserProfileID,KYCStatus)
             VALUES (@DateOfBirth,@FirstName,@LastName,@UserID,@UserProfileID,@KYCStatus)
         `
@@ -351,7 +302,7 @@ app.post("/new", async (req: Request, res: Response) => {
         .input("UserID", userID)
         .query(
           `   
-                    INSERT INTO [${schema}].[address] 
+                    INSERT INTO [${globals.schema}].[address] 
                     (AddressID,AddressLine1,AddresssType,City,Country,IsPrimary,PostalCode,State,UserID)
                     VALUES (@AddressID,@AddressLine1,@AddresssType,@City,@Country,@IsPrimary,@PostalCode,@State,@UserID)
                 `
