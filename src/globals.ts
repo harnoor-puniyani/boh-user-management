@@ -1,6 +1,10 @@
 import dotenv, { config } from "dotenv";
 import sql from "mssql";
 
+dotenv.config({
+  debug: true,
+});
+
 export type userTable = {
   UserID: string;
   Email: string;
@@ -45,6 +49,7 @@ export type LoginHistoryTable = {
   IPAddress: string;
   UserAgenet: string;
 };
+
 
 export const schema = process.env.DB_USER_SCHEMA;
 // const userSchema = "[user]";
