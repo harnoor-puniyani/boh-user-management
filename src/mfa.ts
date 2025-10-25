@@ -5,8 +5,13 @@ import qrcode from "qrcode"
 import { AuthenticatedRequest, verifyJWT } from "./authentication"; // Your auth middleware
 import * as globals from "./globals"
 import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import dotenv from "dotenv";
 
 const mfaRouter = Router();
+dotenv.config({
+  debug: true,
+});
 
 export function verifyMfaToken(
   req: AuthenticatedRequest,
@@ -51,14 +56,18 @@ mfaRouter.post(
     const { otpCode } = req.body;
 
     // 1. Get UserID from the temporary token (added by verifyMfaToken middleware)
-    const userId = req.body.user.userID;
+    const userId = req.body.user.userId;
 
     if (!otpCode) {
       return res.status(400).json({ message: "OTP code is required." });
     }
 
+    let sqlconnection: sql.ConnectionPool;
+
     try {
-      const request = pool.request();
+
+      sqlconnection = await globals.dbconnect(globals.dbConfig);
+      const request = await new sql.Request(sqlconnection);
       let isValid = false;
 
       // 2. Fetch the user's MFA info
@@ -109,10 +118,11 @@ mfaRouter.post(
 
           if (isValid) {
             // IMPORTANT: Delete the OTP so it cannot be re-used
-            await request.query(
-              "DELETE FROM [user].[OneTimePasscodes] WHERE OTPHash = @OTPHash",
-              { OTPHash: otpRecord.OTPHash }
-            );
+            await request
+              .input("OTPHash",otpRecord.OTPHash)
+              .query(
+                "DELETE FROM [user].[OneTimePasscodes] WHERE OTPHash = @OTPHash"
+              );
           }
           break;
 
@@ -134,7 +144,10 @@ mfaRouter.post(
         };
 
         const jwtSecret = process.env.JWT_SECRET;
-        const finalToken = jwt.sign(payload, jwtSecret, { expiresIn: "1h" }); // Or your session duration
+        const finalToken = jwt.sign(payload,<jwt.Secret>jwtSecret,{
+          expiresIn: "1h"
+        });
+        // jwt.sign(payload, jwtSecret, { expiresIn: "1h" }); // Or your session duration
 
         // 6. Set the FINAL, GLOBAL cookie
         res.cookie("token", finalToken, {
@@ -167,15 +180,16 @@ mfaRouter.post(
  */
 mfaRouter.post(
   "/setup",
-  verifyJWT,
+  verifyMfaToken,
   async (req: AuthenticatedRequest, res: Response) => {
     const { mfaMethod } = req.body;
 
     // 1. Get UserID from the verified JWT
-    if (!req.user || typeof req.user === "string" || !req.user.UserID) {
+    if (!req.body.user || typeof req.body.user === "string" || !req.body.user.userId) {
+           
       return res.status(401).json({ message: "Invalid user token." });
     }
-    const userId = req.user.UserID;
+    const userId = req.body.user.userId;
     let sqlconnection = await globals.dbconnect(globals.dbConfig);
     try {
       const request = await new sql.Request(sqlconnection); // Get a request object
@@ -209,7 +223,7 @@ mfaRouter.post(
           const secret = authenticator.generateSecret();
 
           // 2. Create the 'otpauth://' URL
-          const userEmail = req.user.Email; // Assuming Email is in your JWT
+          const userEmail = req.body.user.email; // Assuming Email is in your JWT
           const serviceName = "Bank of Harnoor";
           const otpAuthUrl = authenticator.keyuri(
             userEmail,
@@ -229,7 +243,26 @@ mfaRouter.post(
 
           // 4. Generate the QR code as a data URI
           const qrCodeDataUrl = await qrcode.toDataURL(otpAuthUrl);
-
+          const jwtSecret = process.env.JWT_SECRET;
+           const token = jwt.sign(
+                  {
+                    userId: userId,
+                    email: req.body.user.email,
+                    Role: req.body.user.Role,
+                    scope: "mfa-register",
+                  },
+                  <jwt.Secret>jwtSecret,
+                  {
+                    expiresIn: "1h",
+                  }
+                );
+                res.cookie("token", token, {
+                  httpOnly: true,
+                  secure: process.env.NODE_ENV === "production",
+                  sameSite: true,
+                  path: "/mfa/setup-verify",
+                  maxAge: 60 * 60 * 1000,
+                });
           // 5. Send the QR code to the frontend
           return res.json({
             mfaMethod: "TOTP",
@@ -254,5 +287,68 @@ mfaRouter.post(
     }
   }
 );
+
+mfaRouter.post("/setup-verify",verifyMfaToken, async (req:AuthenticatedRequest,res: Response)=>{
+  if (
+    !req.body.user ||
+    typeof req.body.user === "string" ||
+    !req.body.user.userId
+  ) {
+    return res.status(401).json({ message: "Invalid user token." });
+  }
+  const {otpCode} = req.body;
+  const userId = req.body.user.userId;
+  let sqlconnection:sql.ConnectionPool|undefined;
+  try {
+
+    sqlconnection = await globals.dbconnect(globals.dbConfig);
+    const request =  await new sql.Request(sqlconnection);
+    const userResult = await request
+      .input("UserID", userId)
+      .query(
+        "SELECT Role, MFAMethod, MFASecret FROM [user].[Users] WHERE UserID = @UserID"
+      );
+
+    if (!userResult.recordset.length) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const user = userResult.recordset[0];
+    console.log(authenticator.check(otpCode, user.MFASecret));
+    
+    if(authenticator.check(otpCode, user.MFASecret)){
+      console.log("code entered");
+      
+      const updatereq = await request
+      .query(`
+        Update [user].[Users]
+          set Users.MFAMethod = 'TOTP'
+          where UserID = @UserID
+        `);
+
+        res.status(200).json({
+          message:"successfully registered"
+        });
+    }
+    else{
+      res.status(400).json({
+        message: "registration verification failed pls try again",
+      });
+    }
+  } catch (error) {
+
+    res.status(400).json({
+      message: "exception occured",
+      error: error
+    });
+    
+  }
+  finally
+  {
+    if (sqlconnection) {
+      await globals.dbdisconnect(sqlconnection);
+    }
+  }
+})
 
 export default mfaRouter;

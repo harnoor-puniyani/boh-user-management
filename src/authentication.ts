@@ -7,6 +7,9 @@ import * as globals from "./globals";
 import argon2 from "argon2";
 
 const router = express.Router();
+dotenv.config({
+  debug: true,
+});
 
 export interface AuthenticatedRequest extends Request {
   user?: string  | jwt.JwtPayload ;
@@ -121,7 +124,7 @@ router.post("/login", async (req: Request, res: Response) => {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: true,
-        path: "/mfa/register",
+        path: "/mfa/setup",
         maxAge: 60 * 60 * 1000,
       });
     }

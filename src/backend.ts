@@ -5,6 +5,7 @@ import argon2 from "argon2";
 import * as globals from "./globals"
 import cookieParser from "cookie-parser";
 import * as auth from "./authentication"
+import * as mfa from "./mfa"
 dotenv.config({
   debug: true,
 });
@@ -13,6 +14,7 @@ dotenv.config({
 const app = express();
 app.use(express.json()).use(cookieParser());
 app.use('/auth',auth.default);
+app.use("/mfa",mfa.default);
 
 function protectWithCSRF(req: Request, res: Response, next: NextFunction) {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
