@@ -10,6 +10,7 @@
   "author": "Harnoor",
   "license": "ISC",
   "dependencies": {
+    "@azure/service-bus": "^7.9.5",
     "argon2": "^0.44.0",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",

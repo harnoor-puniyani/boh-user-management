@@ -1,12 +1,13 @@
 import { Router, Response, NextFunction } from "express";
 import { authenticator } from "otplib";
-import sql from "mssql"
-import qrcode from "qrcode"
+import sql from "mssql";
+import qrcode from "qrcode";
 import { AuthenticatedRequest, verifyJWT } from "./authentication"; // Your auth middleware
-import * as globals from "./globals"
+import * as globals from "./globals";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
+import { ServiceBusClient } from "@azure/service-bus";
 
 const mfaRouter = Router();
 dotenv.config({
@@ -47,8 +48,6 @@ export function verifyMfaToken(
   }
 }
 
-
-
 mfaRouter.post(
   "/verify",
   verifyMfaToken,
@@ -65,7 +64,6 @@ mfaRouter.post(
     let sqlconnection: sql.ConnectionPool;
 
     try {
-
       sqlconnection = await globals.dbconnect(globals.dbConfig);
       const request = await new sql.Request(sqlconnection);
       let isValid = false;
@@ -119,7 +117,7 @@ mfaRouter.post(
           if (isValid) {
             // IMPORTANT: Delete the OTP so it cannot be re-used
             await request
-              .input("OTPHash",otpRecord.OTPHash)
+              .input("OTPHash", otpRecord.OTPHash)
               .query(
                 "DELETE FROM [user].[OneTimePasscodes] WHERE OTPHash = @OTPHash"
               );
@@ -144,8 +142,8 @@ mfaRouter.post(
         };
 
         const jwtSecret = process.env.JWT_SECRET;
-        const finalToken = jwt.sign(payload,<jwt.Secret>jwtSecret,{
-          expiresIn: "1h"
+        const finalToken = jwt.sign(payload, <jwt.Secret>jwtSecret, {
+          expiresIn: "1h",
         });
         // jwt.sign(payload, jwtSecret, { expiresIn: "1h" }); // Or your session duration
 
@@ -169,7 +167,6 @@ mfaRouter.post(
   }
 );
 
-
 /**
  * [POST] /api/mfa/setup
  * -----------------
@@ -185,8 +182,11 @@ mfaRouter.post(
     const { mfaMethod } = req.body;
 
     // 1. Get UserID from the verified JWT
-    if (!req.body.user || typeof req.body.user === "string" || !req.body.user.userId) {
-           
+    if (
+      !req.body.user ||
+      typeof req.body.user === "string" ||
+      !req.body.user.userId
+    ) {
       return res.status(401).json({ message: "Invalid user token." });
     }
     const userId = req.body.user.userId;
@@ -244,25 +244,25 @@ mfaRouter.post(
           // 4. Generate the QR code as a data URI
           const qrCodeDataUrl = await qrcode.toDataURL(otpAuthUrl);
           const jwtSecret = process.env.JWT_SECRET;
-           const token = jwt.sign(
-                  {
-                    userId: userId,
-                    email: req.body.user.email,
-                    Role: req.body.user.Role,
-                    scope: "mfa-register",
-                  },
-                  <jwt.Secret>jwtSecret,
-                  {
-                    expiresIn: "1h",
-                  }
-                );
-                res.cookie("token", token, {
-                  httpOnly: true,
-                  secure: process.env.NODE_ENV === "production",
-                  sameSite: true,
-                  path: "/mfa/setup-verify",
-                  maxAge: 60 * 60 * 1000,
-                });
+          const token = jwt.sign(
+            {
+              userId: userId,
+              email: req.body.user.email,
+              Role: req.body.user.Role,
+              scope: "mfa-register",
+            },
+            <jwt.Secret>jwtSecret,
+            {
+              expiresIn: "1h",
+            }
+          );
+          res.cookie("token", token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: true,
+            path: "/mfa/setup-verify",
+            maxAge: 60 * 60 * 1000,
+          });
           // 5. Send the QR code to the frontend
           return res.json({
             mfaMethod: "TOTP",
@@ -275,11 +275,9 @@ mfaRouter.post(
         // Default: Invalid choice
         // -----------------------------------------------------------------
         default:
-          return res
-            .status(400)
-            .json({
-              message: "Invalid mfaMethod. Must be TOTP, SMS, or EMAIL.",
-            });
+          return res.status(400).json({
+            message: "Invalid mfaMethod. Must be TOTP, SMS, or EMAIL.",
+          });
       }
     } catch (error) {
       console.error("Error during MFA setup:", error);
@@ -288,67 +286,147 @@ mfaRouter.post(
   }
 );
 
-mfaRouter.post("/setup-verify",verifyMfaToken, async (req:AuthenticatedRequest,res: Response)=>{
-  if (
-    !req.body.user ||
-    typeof req.body.user === "string" ||
-    !req.body.user.userId
-  ) {
-    return res.status(401).json({ message: "Invalid user token." });
-  }
-  const {otpCode} = req.body;
-  const userId = req.body.user.userId;
-  let sqlconnection:sql.ConnectionPool|undefined;
-  try {
-
-    sqlconnection = await globals.dbconnect(globals.dbConfig);
-    const request =  await new sql.Request(sqlconnection);
-    const userResult = await request
-      .input("UserID", userId)
-      .query(
-        "SELECT Role, MFAMethod, MFASecret FROM [user].[Users] WHERE UserID = @UserID"
-      );
-
-    if (!userResult.recordset.length) {
-      return res.status(404).json({ message: "User not found." });
+mfaRouter.post(
+  "/setup-verify",
+  verifyMfaToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    if (
+      !req.body.user ||
+      typeof req.body.user === "string" ||
+      !req.body.user.userId
+    ) {
+      return res.status(401).json({ message: "Invalid user token." });
     }
+    const { otpCode } = req.body;
+    const userId = req.body.user.userId;
+    let sqlconnection: sql.ConnectionPool | undefined;
+    try {
+      sqlconnection = await globals.dbconnect(globals.dbConfig);
+      const request = await new sql.Request(sqlconnection);
+      const userResult = await request
+        .input("UserID", userId)
+        .query(
+          "SELECT Role, MFAMethod, MFASecret FROM [user].[Users] WHERE UserID = @UserID"
+        );
 
-    const user = userResult.recordset[0];
-    console.log(authenticator.check(otpCode, user.MFASecret));
-    
-    if(authenticator.check(otpCode, user.MFASecret)){
-      console.log("code entered");
-      
-      const updatereq = await request
-      .query(`
+      if (!userResult.recordset.length) {
+        return res.status(404).json({ message: "User not found." });
+      }
+
+      const user = userResult.recordset[0];
+      console.log(authenticator.check(otpCode, user.MFASecret));
+
+      if (authenticator.check(otpCode, user.MFASecret)) {
+        console.log("code entered");
+
+        const updatereq = await request.query(`
         Update [user].[Users]
           set Users.MFAMethod = 'TOTP'
           where UserID = @UserID
         `);
 
         res.status(200).json({
-          message:"successfully registered"
+          message: "successfully registered",
         });
-    }
-    else{
+      } else {
+        res.status(400).json({
+          message: "registration verification failed pls try again",
+        });
+      }
+    } catch (error) {
       res.status(400).json({
-        message: "registration verification failed pls try again",
+        message: "exception occured",
+        error: error,
       });
+    } finally {
+      if (sqlconnection) {
+        await globals.dbdisconnect(sqlconnection);
+      }
     }
-  } catch (error) {
+  }
+);
 
-    res.status(400).json({
-      message: "exception occured",
-      error: error
-    });
-    
-  }
-  finally
-  {
-    if (sqlconnection) {
-      await globals.dbdisconnect(sqlconnection);
+mfaRouter.post(
+  "generate-otp",
+  async (req: AuthenticatedRequest, res: Response) => {
+    let sqlconnection: sql.ConnectionPool | undefined;
+    try {
+      const { email, userId } = req.body.user;
+
+      if (!email) {
+        return res.status(400).json({ message: "Email is required." });
+      }
+
+      sqlconnection = await globals.dbconnect(globals.dbConfig);
+      const request = new sql.Request(sqlconnection);
+
+      const userResult = await request
+        .input("Email", email)
+        .query(
+          "SELECT UserID, Email, PhoneNumber, Role, MFAMethod FROM [user].[Users] WHERE Email = @Email"
+        );
+
+      if (!userResult.recordset[0]) {
+        // Don't reveal if user exists.
+        return res.json({
+          message: "If your account exists, an OTP has been sent.",
+        });
+      }
+      const user = userResult.recordset[0];
+
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+      const otpHash = await bcrypt.hash(otpCode, 10);
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5-minute expiry
+
+      await request
+        .input("UserID", userId)
+        .input("OTPHash", otpHash)
+        .input("ExpiresAt", expiresAt)
+        .query(
+          "INSERT INTO [user].[OneTimePasscodes] (UserID, OTPHash, ExpiresAt) VALUES (@UserID, @OTPHash, @ExpiresAt)"
+        );
+
+      //notification
+      const connectionString = process.env.SERVICEBUS_CONNECTION_STRING;
+      const queueName = process.env.SERVICEBUS_QUEUE_NAME;
+
+      if (!connectionString || !queueName) {
+        console.error("Service Bus is not configured. Cannot send OTP.");
+        // We still return 200 so the user isn't blocked, but log the error
+        return res.json({
+          message: "If your account exists, an OTP has been sent.",
+        });
+      }
+
+      const otpEvent = {
+        messageType: "OTP_REQUEST",
+        channels: [
+          {
+            type: user.MFAMethod,
+            contact: user.MFAMethod == "email" ? email : user.PhoneNumber,
+          },
+        ],
+        otpCode: otpCode, // Send plain text code to the queue
+      };
+
+      const sbClient = new ServiceBusClient(connectionString);
+      const sender = sbClient.createSender(queueName);
+      await sender.sendMessages({
+        body: otpEvent,
+        contentType: "application/json",
+      });
+      await sender.close();
+      await sbClient.close();
+    } catch (error) {
+      console.error("Generate OTP failed:", error);
+      return res.status(500).json({ message: "Server error." });
+    } finally {
+      if (sqlconnection) {
+        await globals.dbdisconnect(sqlconnection);
+      }
     }
   }
-})
+);
 
 export default mfaRouter;
