@@ -15,7 +15,7 @@ WORKDIR /app
 
 COPY package*.json ./
 
-COPY --from=buildeer /app/dist ./dist
+COPY --from=builder /app/dist ./dist
 
 EXPOSE 3000
 
