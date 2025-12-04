@@ -11,13 +11,14 @@ resources:
     - repository: templates
       type: git
       name: azure-cicd-templates
-      ref: refs/head/main
+      ref: refs/heads/main
 
 pool:
   vmImage: ubuntu-latest
 
 stages:
-  - stage: Test Stage
+  - stage: Test
+    displayName: Test Stage
     jobs:
       - job: Script
         steps:
@@ -26,12 +27,15 @@ stages:
             displayName: Sample script
   - stage: Template
     jobs:
-      - template: azure-cicd-templates@templates
-        parameters:
-          imageName: harnoorpuniyani/boh-user-management
-          imageTag: v0
-          directory: boh-user-management
-          dockerRegistry: docker-harnoorpuniyani
+      - job: dockerBuild
+        displayName: Docker build
+        steps:
+        - template: docker-build-and-push.yaml@templates
+          parameters:
+            imageName: harnoorpuniyani/boh-user-management
+            imageTag: v0
+            directory: boh-user-management
+            dockerRegistry: docker-harnoorpuniyani
 
 
 
