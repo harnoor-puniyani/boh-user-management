@@ -1,0 +1,47 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- master
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: azure-cicd-templates
+      ref: refs/head/main
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: Test Stage
+    jobs:
+      - job: Script
+        steps:
+          - script: |
+              echo "add another task"
+            displayName: Sample script
+  - stage: Template
+    jobs:
+      - template: azure-cicd-templates@templates
+        parameters:
+          imageName: harnoorpuniyani/boh-user-management
+          imageTag: v0
+          directory: boh-user-management
+          dockerRegistry: docker-harnoorpuniyani
+
+
+
+
+
+# steps:
+# - script: echo Hello, world!
+#   displayName: 'Run a one-line script'
+
+# - script: |
+#     echo Add other tasks to build, test, and deploy your project.
+#     echo See https://aka.ms/yaml
+#   displayName: 'Run a multi-line script'
