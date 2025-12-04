@@ -34,7 +34,7 @@ stages:
           parameters:
             imageName: harnoorpuniyani/boh-user-management
             imageTag: v0
-            directory: boh-user-management
+            directory: .
             dockerRegistry: docker-harnoorpuniyani
 
 
