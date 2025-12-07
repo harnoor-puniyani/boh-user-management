@@ -5,6 +5,8 @@ on:
   workflow_dispatch: 
 jobs:
   sync_repo:
+    permissions: 
+      contents: write
     runs-on: ubuntu-latest
     steps:
      
