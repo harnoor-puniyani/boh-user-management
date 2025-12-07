@@ -26,6 +26,7 @@ stages:
               echo "add another task"
             displayName: Sample script
   - stage: Template
+
     jobs:
       - job: dockerBuild
         displayName: Docker build
@@ -36,6 +37,17 @@ stages:
             imageTag: v0
             directory: .
             dockerRegistry: docker-harnoorpuniyani
+      - job: multiArchBuild
+        displayName: multi architecture build
+        steps:
+          - template: docker-multi-architecture-build-and-push.yaml@templates
+            parameters:
+              directory: .
+              dockerRegistry: docker-harnoorpuniyani
+              imageName: harnoorpuniyani/boh/boh-user-management
+              imageTag: v1
+              architecture: linux/amd64,linux/arm64
+    
 
 
 
