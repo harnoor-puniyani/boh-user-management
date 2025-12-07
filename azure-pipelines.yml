@@ -3,6 +3,7 @@
 # Add steps that build, run tests, deploy, and more:
 # https://aka.ms/yaml
 
+name: 1.0.${Date:yyyyMMdd}.${rev:r}
 trigger:
 - master
 
@@ -44,8 +45,8 @@ stages:
             parameters:
               directory: .
               dockerRegistry: docker-harnoorpuniyani
-              imageName: harnoorpuniyani/boh/boh-user-management
-              imageTag: v1
+              imageName: harnoorpuniyani/boh-user-management
+              imageTag: ${Build.BuildNumber}
               architecture: linux/amd64,linux/arm64
     
 
