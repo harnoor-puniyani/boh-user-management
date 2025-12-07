@@ -46,7 +46,7 @@ stages:
               directory: .
               dockerRegistry: docker-harnoorpuniyani
               imageName: harnoorpuniyani/boh-user-management
-              imageTag: ${Build.BuildNumber}
+              imageTag: $(Build.BuildNumber)
               architecture: linux/amd64,linux/arm64
     
 
