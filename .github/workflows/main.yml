@@ -21,6 +21,7 @@ jobs:
         run: |
           git config --global user.name "Harnoor Puniyani"
           git config --global user.email "18042000harjee@gmail.com"
+          git config pull.rebase false
       
       - name: Fetch From Devops
         run: |
@@ -28,7 +29,7 @@ jobs:
           git remote add devops "$ADO_URL"
           git fetch devops
           git checkout master
-          git pull --rebase devops master 
+          git pull devops master 
 
           # push changes
           git push devops master
