@@ -13,7 +13,7 @@ jobs:
         with:
           repository: ${{github.repository}}
           fetch-depth: 0
-          ref: 'refs/head/master'
+          ref: 'refs/heads/master'
       
       - name: Configure Git
         run: |
