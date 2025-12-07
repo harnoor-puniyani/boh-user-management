@@ -27,7 +27,7 @@ stages:
               echo "add another task"
             displayName: Sample script
   - stage: Template
-
+    dependsOn: Test
     jobs:
       - job: dockerBuild
         displayName: Docker build
