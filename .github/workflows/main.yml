@@ -22,7 +22,7 @@ jobs:
       
       - name: Fetch From Devops
         run: |
-          ADO_URL = "https://${{vars.git_username}}:${{secrets.git_password}}@ARZOM@dev.azure.com/ARZOM/AzureCustomisations/_git/boh-user-management"
+          ADO_URL="https://${{vars.git_username}}:${{secrets.git_password}}@ARZOM@dev.azure.com/ARZOM/AzureCustomisations/_git/boh-user-management"
           git remote add devops "$ADO_URL"
           git fetch devops
           git checkout master
