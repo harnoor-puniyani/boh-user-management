@@ -1,0 +1,39 @@
+name: Devops repo sync
+on:
+  schedule:
+    - cron: '15 */4 * * *'
+  workflow_dispatch: 
+jobs:
+  sync_repo:
+    runs-on: ubuntu-latest
+    steps:
+     
+      - name: fetch repo
+        uses: actions/checkout@v6
+        with:
+          repository: ${{github.repository}}
+          fetch-depth: 0
+          ref: 'refs/head/master'
+      
+      - name: Configure Git
+        run: |
+          git config --global user.name "Harnoor Puniyani"
+          git config --global user.email "18042000harjee@gmail.com"
+      
+      - name: Fetch From Devops
+        run: |
+          ADO_URL = "https://${{secrets.git_username}}:${{secrets.git_password}}@ARZOM@dev.azure.com/ARZOM/AzureCustomisations/_git/boh-user-management"
+          git remote add devops "$ADO_URL"
+          git fetch devops
+          git checkout master
+          git pull --rebase devops master 
+
+          # push changes
+          git push devops master
+          git push origin master
+     
+          
+        
+        
+  
+    
