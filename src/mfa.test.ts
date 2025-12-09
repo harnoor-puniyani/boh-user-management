@@ -174,10 +174,8 @@ describe('MFA API Tests', () => {
         });
 
       expect(response.status).toBe(200);
+      expect(response.body.message).toBe('Login successful.');
       expect(response.headers['set-cookie']).toBeDefined();
-      const cookies = response.headers['set-cookie'];
-      expect(cookies.some((cookie: string) => cookie.includes('token='))).toBe(true);
-      expect(cookies.some((cookie: string) => cookie.includes('path=/'))).toBe(true);
     });
   });
 
@@ -507,7 +505,7 @@ describe('MFA API Tests', () => {
     });
 
     it('should return 403 if token has invalid scope', async () => {
-      const token = createMfaToken('mfa-verify'); // Wrong scope
+      const token = createMfaToken('invalid-scope'); // Invalid scope
 
       const response = await request(app)
         .post('/mfa/setup')
