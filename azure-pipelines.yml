@@ -48,6 +48,7 @@ stages:
           - task: Docker@2
             inputs:
               command: login
+              containerRegistry: docker-harnoorpuniyani
           
           - script: docker run --rm harnoorpuniyani/boh-user-management:v0 npm test
 
