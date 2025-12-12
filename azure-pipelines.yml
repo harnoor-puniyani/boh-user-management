@@ -41,6 +41,16 @@ stages:
             imageTag: v0
             directory: .
             dockerRegistry: docker-harnoorpuniyani
+      
+      - job: unitTesting
+        displayName: unit Testing
+        steps:
+          - task: Docker@2
+            inputs:
+              command: login
+          
+          - script: docker run --rm harnoorpuniyani/boh-user-management:v0 npm test
+
       - job: multiArchBuild
         displayName: multi architecture build
         steps:
