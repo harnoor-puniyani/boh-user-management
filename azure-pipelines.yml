@@ -21,16 +21,34 @@ pool:
   vmImage: ubuntu-latest
 
 stages:
-  - stage: Test
+  - stage: testing
     displayName: Test Stage
     jobs:
       - job: Script
         steps:
+          # - script: |
+          #     echo "add another task"
+          #   displayName: Sample script
+          - task: NodeTool@0
+            inputs:
+              versionSource: 'spec'
+              versionSpec: '24.x'
+              checkLatest: true
+            displayName: install node
           - script: |
-              echo "add another task"
-            displayName: Sample script
+              npm ci
+            displayName: install packages
+          - script: |
+              npm run test:coverage
+            displayName: run test coverage
+
+          - task: PublishCodeCoverageResults@2
+            inputs:
+              summaryFileLocation: coverage/clover.xml
+            displayName: publsih code coverage
+
   - stage: Template
-    dependsOn: Test
+    dependsOn: testing
     jobs:
       - job: dockerBuild
         displayName: Docker build
@@ -42,15 +60,15 @@ stages:
             directory: .
             dockerRegistry: docker-harnoorpuniyani
       
-      - job: unitTesting
-        displayName: unit Testing
-        steps:
-          - task: Docker@2
-            inputs:
-              command: login
-              containerRegistry: docker-harnoorpuniyani
+      # - job: unitTesting
+      #   displayName: unit Testing
+      #   steps:
+      #     - task: Docker@2
+      #       inputs:
+      #         command: login
+      #         containerRegistry: docker-harnoorpuniyani
           
-          - script: docker run --rm harnoorpuniyani/boh-user-management:v0 npm test
+      #     - script: docker run --rm harnoorpuniyani/boh-user-management:v0 npm test
 
       - job: multiArchBuild
         displayName: multi architecture build
