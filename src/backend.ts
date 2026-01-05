@@ -1,4 +1,4 @@
-import express, { Request, Response,NextFunction } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import sql from "mssql";
 import dotenv, { config } from "dotenv";
 import argon2 from "argon2";
@@ -13,8 +13,8 @@ dotenv.config({
 
 const app = express();
 app.use(express.json()).use(cookieParser());
-app.use('/auth',auth.default);
-app.use("/mfa",mfa.default);
+app.use('/auth', auth.default);
+app.use("/mfa", mfa.default);
 
 function protectWithCSRF(req: Request, res: Response, next: NextFunction) {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
@@ -117,7 +117,7 @@ app.get(
 );
 
 app.post(
-  ["/users", "/userProfile", "/address"],auth.verifyJWT, protectWithCSRF,
+  ["/users", "/userProfile", "/address"], auth.verifyJWT, protectWithCSRF,
   async (req: Request, res: Response) => {
     let sqlconnection: sql.ConnectionPool = await globals.dbconnect(globals.dbConfig);
     try {
@@ -223,7 +223,7 @@ app.get(
   protectWithCSRF,
   auth.checkAdmin,
   async (req: Request, res: Response) => {
-    
+
     let sqlconnection: sql.ConnectionPool = await globals.dbconnect(
       globals.dbConfig
     );
@@ -263,9 +263,9 @@ app.post(
     try {
       if (globals.connected && req.body.user.UserID == null) {
         let userData: globals.userTable = req.body.user as globals.userTable;
-        const password:string = <string>req.body.user.password;
+        const password: string = <string>req.body.user.password;
 
-        const hashedPassword:any = await argon2.hash(password, {
+        const hashedPassword: any = await argon2.hash(password, {
           type: argon2.argon2id,
         });
 
@@ -288,60 +288,64 @@ app.post(
           );
 
         const userID = await userRequest.recordset[0].UserID;
-
-        let userProfileRequest = await new sql.Request(transaction)
-          .input("DateOfBirth", userProfileData.DateOfBirth)
-          .input("FirstName", userProfileData.FirstName)
-          .input("LastName", userProfileData.LastName)
-          .input("UserID", userID)
-          .input("KYCStatus", userProfileData.KYCStatus)
-          .query(
-            `INSERT INTO [${globals.schema}].[UserProfiles] 
-            (DateOfBirth,FirstName,LastName,UserID,KYCStatus,Role)
-            VALUES (@DateOfBirth,@FirstName,@LastName,@UserID,@KYCStatus,'user')
+        if (userProfileData != null) {
+          let userProfileRequest = await new sql.Request(transaction)
+            .input("DateOfBirth", userProfileData.DateOfBirth)
+            .input("FirstName", userProfileData.FirstName)
+            .input("LastName", userProfileData.LastName)
+            .input("UserID", userID)
+            .input("KYCStatus", userProfileData.KYCStatus)
+            .query(
+              `INSERT INTO [${globals.schema}].[UserProfiles] 
+            (DateOfBirth,FirstName,LastName,UserID,KYCStatus)
+            VALUES (@DateOfBirth,@FirstName,@LastName,@UserID,@KYCStatus)
         `
-          );
-
-        let addressRequest = await new sql.Request(transaction)
-          .input("AddressLine1", address.AddressLine1)
-          .input("AddressType", address.AddresssType)
-          .input("City", address.City)
-          .input("Country", address.Country)
-          .input("IsPrimary", sql.Bit,address.IsPrimary)
-          .input("PostalCode", address.PostalCode)
-          .input("State", address.State)
-          .input("UserID", userID)
-          .query(
-            `   
+            );
+        }
+        if (address != null) {
+          let addressRequest = await new sql.Request(transaction)
+            .input("AddressLine1", address.AddressLine1)
+            .input("AddressType", address.AddresssType)
+            .input("City", address.City)
+            .input("Country", address.Country)
+            .input("IsPrimary", sql.Bit, address.IsPrimary)
+            .input("PostalCode", address.PostalCode)
+            .input("State", address.State)
+            .input("UserID", userID)
+            .query(
+              `   
                     INSERT INTO [${globals.schema}].[Addresses] 
                     (AddressLine1,AddressType,City,Country,IsPrimary,PostalCode,State,UserID)
                     VALUES (@AddressLine1,@AddressType,@City,@Country,@IsPrimary,@PostalCode,@State,@UserID)
                 `
-          );
-
+            );
+        }
         await transaction.commit();
         res.status(200).json({
           value: userID,
         });
       }
-      else{
+      else {
         res.sendStatus(500);
       }
     } catch (error) {
-      await transaction.rollback().then((result)=>{
+      await transaction.rollback().then((result) => {
+        console.log("error:",error instanceof Error ? error.message : String(error));
         res.status(500).json({
-          error: error,
+          error: error instanceof Error ? error.message : String(error),
           message: "transaction rollbacked",
           result: result
         });
-      }).catch((err)=>{
+      }).catch((err) => {
+        console.log("original error:",error instanceof Error ? error.message : String(error));
+        console.log("err",err instanceof Error ? err.message : String(err));
         res.status(500).json({
-          error: err,
-          originalError: error,
+          error: err instanceof Error ? err.message : String(err),
+          originalError: error instanceof Error ? error.message : String(error),
           message: "transaction rollback failed",
         });
       });
-      
+
     }
   }
 );
